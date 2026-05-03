@@ -52,11 +52,12 @@ function initTables() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         warehouse_id INTEGER NOT NULL,
         item_id INTEGER NOT NULL,
+        batch_number TEXT NOT NULL DEFAULT '',
         quantity INTEGER DEFAULT 0,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
         FOREIGN KEY (item_id) REFERENCES items(id),
-        UNIQUE(warehouse_id, item_id)
+        UNIQUE(warehouse_id, item_id, batch_number)
       )
     `);
 

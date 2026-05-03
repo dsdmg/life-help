@@ -10,16 +10,22 @@
       finished-text="没有更多了"
       @load="loadInventory"
     >
-      <van-cell
-        v-for="inventory in inventories"
-        :key="inventory.id"
-        :title="inventory.item_name"
-        :label="inventory.warehouse_name"
-      >
-        <template #value>
-          <span class="quantity">{{ inventory.quantity }} {{ inventory.unit || '' }}</span>
-        </template>
-      </van-cell>
+      <van-cell-group inset v-for="(group, index) in groupedInventory" :key="index">
+        <van-cell :title="group.item_name" :label="group.warehouse_name" class="item-header">
+          <template #value>
+            <span class="total-quantity">共 {{ group.total }} {{ group.unit || '' }}</span>
+          </template>
+        </van-cell>
+        <van-cell
+          v-for="item in group.items"
+          :key="item.id"
+          :title="'批号: ' + (item.batch_number || '无')"
+        >
+          <template #value>
+            <span class="quantity">{{ item.quantity }} {{ item.unit || '' }}</span>
+          </template>
+        </van-cell>
+      </van-cell-group>
     </van-list>
   </div>
 </template>
@@ -44,6 +50,25 @@ const warehouseOptions = computed(() => {
     options.push({ text: w.name, value: w.id })
   })
   return options
+})
+
+const groupedInventory = computed(() => {
+  const groups = {}
+  inventories.value.forEach(item => {
+    const key = `${item.item_id}_${item.warehouse_id}`
+    if (!groups[key]) {
+      groups[key] = {
+        item_name: item.item_name,
+        warehouse_name: item.warehouse_name,
+        unit: item.unit,
+        total: 0,
+        items: []
+      }
+    }
+    groups[key].items.push(item)
+    groups[key].total += item.quantity
+  })
+  return Object.values(groups)
 })
 
 const goBack = () => {
@@ -88,8 +113,18 @@ onMounted(() => {
   background-color: #f7f8fa;
 }
 
+.item-header {
+  font-weight: bold;
+  background-color: #f5f5f5;
+}
+
 .quantity {
   font-weight: bold;
   color: #1989fa;
+}
+
+.total-quantity {
+  color: #666;
+  font-size: 14px;
 }
 </style>

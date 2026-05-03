@@ -129,23 +129,23 @@ app.put('/api/items/:id', authenticateToken, (req, res) => {
 
 app.get('/api/inventory', authenticateToken, (req, res) => {
   const { warehouse_id } = req.query;
-  
+
   let sql = `
-    SELECT i.id, i.warehouse_id, i.item_id, i.quantity, i.updated_at,
+    SELECT i.id, i.warehouse_id, i.item_id, i.batch_number, i.quantity, i.updated_at,
            w.name as warehouse_name, it.name as item_name, it.category, it.unit
     FROM inventory i
     LEFT JOIN warehouses w ON i.warehouse_id = w.id
     LEFT JOIN items it ON i.item_id = it.id
   `;
-  
+
   const params = [];
   if (warehouse_id) {
     sql += ' WHERE i.warehouse_id = ?';
     params.push(warehouse_id);
   }
-  
-  sql += ' ORDER BY i.updated_at DESC';
-  
+
+  sql += ' ORDER BY it.name ASC, i.batch_number ASC';
+
   db.all(sql, params, (err, rows) => {
     if (err) {
       return res.status(500).json({ error: '查询库存失败' });
@@ -194,79 +194,135 @@ app.get('/api/records', authenticateToken, (req, res) => {
 
 app.post('/api/records', authenticateToken, (req, res) => {
   const { type, warehouse_id, item_id, quantity, operator, remark, batch_number, shelf_life } = req.body;
-  
+
   if (!type || !warehouse_id || !item_id || quantity === undefined) {
     return res.status(400).json({ error: '缺少必要参数' });
   }
-  
+
   if (!['in', 'out'].includes(type)) {
     return res.status(400).json({ error: '类型必须是 in 或 out' });
   }
-  
+
+  const batch = batch_number || '';
+
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
-    
-    db.get('SELECT * FROM inventory WHERE warehouse_id = ? AND item_id = ?', [warehouse_id, item_id], (err, inventory) => {
+
+    db.get('SELECT * FROM inventory WHERE warehouse_id = ? AND item_id = ? AND batch_number = ?', [warehouse_id, item_id, batch], (err, inventory) => {
       if (err) {
         db.run('ROLLBACK');
         return res.status(500).json({ error: '查询库存失败' });
       }
-      
+
       const qty = parseInt(quantity);
       let newQuantity = inventory ? inventory.quantity : 0;
-      
+
       if (type === 'in') {
         newQuantity += qty;
       } else {
         newQuantity -= qty;
         if (newQuantity < 0) {
           db.run('ROLLBACK');
-          return res.status(400).json({ error: '库存不足' });
+          return res.status(400).json({ error: '该批号库存不足' });
         }
       }
-      
+
       if (inventory) {
-        db.run('UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newQuantity, inventory.id], (err) => {
-          if (err) {
-            db.run('ROLLBACK');
-            return res.status(500).json({ error: '更新库存失败' });
-          }
-          insertRecord();
-        });
-      } else {
-        db.run('INSERT INTO inventory (warehouse_id, item_id, quantity) VALUES (?, ?, ?)', [warehouse_id, item_id, newQuantity], (err) => {
+        if (newQuantity === 0) {
+          db.run('DELETE FROM inventory WHERE id = ?', [inventory.id], (err) => {
+            if (err) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: '删除库存记录失败' });
+            }
+            insertRecord();
+          });
+        } else {
+          db.run('UPDATE inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newQuantity, inventory.id], (err) => {
+            if (err) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: '更新库存失败' });
+            }
+            insertRecord();
+          });
+        }
+      } else if (type === 'in') {
+        db.run('INSERT INTO inventory (warehouse_id, item_id, batch_number, quantity) VALUES (?, ?, ?, ?)', [warehouse_id, item_id, batch, newQuantity], (err) => {
           if (err) {
             db.run('ROLLBACK');
             return res.status(500).json({ error: '创建库存记录失败' });
           }
           insertRecord();
         });
+      } else {
+        db.run('ROLLBACK');
+        return res.status(400).json({ error: '该批号不存在库存' });
       }
-      
+
       function insertRecord() {
-        db.run('INSERT INTO records (type, warehouse_id, item_id, quantity, operator, remark, batch_number, shelf_life) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', 
-          [type, warehouse_id, item_id, qty, operator || '', remark || '', batch_number || '', shelf_life || null], function(err) {
+        db.run('INSERT INTO records (type, warehouse_id, item_id, quantity, operator, remark, batch_number, shelf_life) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [type, warehouse_id, item_id, qty, operator || '', remark || '', batch, shelf_life || null], function(err) {
             if (err) {
               db.run('ROLLBACK');
               return res.status(500).json({ error: '创建出入库记录失败' });
             }
-            
+
             db.run('COMMIT');
-            res.status(201).json({ 
-              id: this.lastID, 
-              type, 
-              warehouse_id, 
-              item_id, 
-              quantity: qty, 
-              operator, 
+            res.status(201).json({
+              id: this.lastID,
+              type,
+              warehouse_id,
+              item_id,
+              quantity: qty,
+              operator,
               remark,
-              batch_number,
+              batch_number: batch,
               shelf_life,
               new_quantity: newQuantity
             });
           });
       }
     });
+  });
+});
+
+app.get('/api/inventory/expiring', authenticateToken, (req, res) => {
+  const days = parseInt(req.query.days) || 5;
+
+  const sql = `
+    SELECT
+      i.id,
+      it.name,
+      w.name as warehouse,
+      i.batch_number,
+      i.quantity,
+      r.shelf_life,
+      r.created_at as entry_date,
+      CASE
+        WHEN r.shelf_life IS NOT NULL THEN
+          r.shelf_life - CAST((julianday('now') - julianday(r.created_at)) AS INTEGER)
+        ELSE NULL
+      END as daysLeft
+    FROM inventory i
+    LEFT JOIN items it ON i.item_id = it.id
+    LEFT JOIN warehouses w ON i.warehouse_id = w.id
+    LEFT JOIN (
+      SELECT item_id, warehouse_id, batch_number, shelf_life, created_at,
+             ROW_NUMBER() OVER (PARTITION BY item_id, warehouse_id, batch_number ORDER BY created_at DESC) as rn
+      FROM records
+      WHERE type = 'in'
+    ) r ON i.item_id = r.item_id AND i.warehouse_id = r.warehouse_id AND i.batch_number = r.batch_number AND r.rn = 1
+    WHERE i.quantity > 0
+      AND r.shelf_life IS NOT NULL
+      AND (r.shelf_life - CAST((julianday('now') - julianday(r.created_at)) AS INTEGER)) BETWEEN 0 AND ?
+    ORDER BY daysLeft ASC
+  `;
+
+  db.all(sql, [days], (err, rows) => {
+    if (err) {
+      console.error('查询快过期物品失败:', err);
+      return res.status(500).json({ error: '查询快过期物品失败' });
+    }
+    res.json(rows);
   });
 });
 

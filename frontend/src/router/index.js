@@ -9,10 +9,30 @@ const routes = [
     meta: { requiresAuth: false }
   },
   {
-    path: '/home',
-    name: 'Home',
-    component: () => import('@/views/Home.vue'),
-    meta: { requiresAuth: true }
+    path: '/',
+    component: () => import('@/components/MainLayout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        redirect: '/home'
+      },
+      {
+        path: 'home',
+        name: 'Home',
+        component: () => import('@/views/Home.vue')
+      },
+      {
+        path: 'function',
+        name: 'Function',
+        component: () => import('@/views/Function.vue')
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/Profile.vue')
+      }
+    ]
   },
   {
     path: '/warehouse',
@@ -37,10 +57,6 @@ const routes = [
     name: 'Record',
     component: () => import('@/views/Record.vue'),
     meta: { requiresAuth: true }
-  },
-  {
-    path: '/',
-    redirect: '/home'
   },
   {
     path: '/:pathMatch(.*)*',
