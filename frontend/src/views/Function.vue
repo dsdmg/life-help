@@ -22,6 +22,11 @@
         text="出入库记录"
         @click="navigateTo('/record')"
       />
+      <van-grid-item
+        icon="scan"
+        text="扫描出库"
+        @click="navigateTo('/scan-out')"
+      />
     </van-grid>
   </div>
 </template>

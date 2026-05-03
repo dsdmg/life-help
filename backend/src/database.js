@@ -43,9 +43,16 @@ function initTables() {
         category TEXT,
         unit TEXT,
         shelf_life INTEGER,
+        barcode TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    db.run(`ALTER TABLE items ADD COLUMN barcode TEXT`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('添加barcode字段失败:', err.message);
+      }
+    });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS inventory (

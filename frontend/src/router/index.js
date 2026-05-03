@@ -59,6 +59,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/scan-out',
+    name: 'ScanOut',
+    component: () => import('@/views/ScanOut.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/home'
   }

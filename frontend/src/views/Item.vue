@@ -41,6 +41,15 @@
             placeholder="请输入单位"
           />
           <van-field
+            v-model="formItem.barcode"
+            label="条码"
+            placeholder="请输入或扫描条码"
+          >
+            <template #button>
+              <van-button size="small" type="primary" @click="openBarcodeScanner">扫描</van-button>
+            </template>
+          </van-field>
+          <van-field
             v-model="formItem.shelf_life"
             type="number"
             label="保质期(天)"
@@ -53,6 +62,12 @@
         </div>
       </div>
     </van-popup>
+    <ScanQRCode
+      v-if="showBarcodeScanner"
+      :visible="showBarcodeScanner"
+      @close="showBarcodeScanner = false"
+      @success="onBarcodeScanned"
+    />
   </div>
 </template>
 
@@ -61,6 +76,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
 import axios from '@/utils/axios';
+import ScanQRCode from '@/components/ScanQRCode.vue';
 
 const router = useRouter();
 
@@ -68,19 +84,24 @@ const items = ref([]);
 const loading = ref(false);
 const finished = ref(false);
 const showAddDialog = ref(false);
+const showBarcodeScanner = ref(false);
 const isEdit = ref(false);
 const editId = ref(null);
 const formItem = ref({
   name: '',
   category: '',
   unit: '',
-  shelf_life: ''
+  shelf_life: '',
+  barcode: ''
 });
 
 const itemLabel = (item) => {
   const parts = [];
   parts.push(item.category || '未分类');
   parts.push(item.unit || '无单位');
+  if (item.barcode) {
+    parts.push(`条码:${item.barcode}`);
+  }
   if (item.shelf_life !== undefined && item.shelf_life !== null && item.shelf_life !== '') {
     parts.push(`保质期:${item.shelf_life}天`);
   }
@@ -89,6 +110,16 @@ const itemLabel = (item) => {
 
 const goBack = () => {
   router.back();
+};
+
+const openBarcodeScanner = () => {
+  showBarcodeScanner.value = true;
+};
+
+const onBarcodeScanned = (barcode) => {
+  formItem.value.barcode = barcode;
+  showBarcodeScanner.value = false;
+  showToast('条码扫描成功');
 };
 
 const loadItems = async () => {
@@ -115,7 +146,8 @@ const openAdd = () => {
     name: '',
     category: '',
     unit: '',
-    shelf_life: ''
+    shelf_life: '',
+    barcode: ''
   };
   showAddDialog.value = true;
 };
@@ -128,7 +160,8 @@ const openEdit = (item) => {
     name: item.name,
     category: item.category || '',
     unit: item.unit || '',
-    shelf_life: item.shelf_life !== undefined && item.shelf_life !== null ? String(item.shelf_life) : ''
+    shelf_life: item.shelf_life !== undefined && item.shelf_life !== null ? String(item.shelf_life) : '',
+    barcode: item.barcode || ''
   };
   showAddDialog.value = true;
 };

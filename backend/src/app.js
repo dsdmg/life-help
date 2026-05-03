@@ -91,31 +91,46 @@ app.get('/api/items', authenticateToken, (req, res) => {
   });
 });
 
+app.get('/api/items/search', authenticateToken, (req, res) => {
+  const { keyword } = req.query;
+  
+  if (!keyword) {
+    return res.status(400).json({ error: '搜索关键词不能为空' });
+  }
+  
+  db.all('SELECT * FROM items WHERE name = ? OR barcode = ?', [keyword, keyword], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: '查询物品失败' });
+    }
+    res.json(rows);
+  });
+});
+
 app.post('/api/items', authenticateToken, (req, res) => {
-  const { name, category, unit, shelf_life } = req.body;
+  const { name, category, unit, shelf_life, barcode } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: '物品名称不能为空' });
   }
   
-  db.run('INSERT INTO items (name, category, unit, shelf_life) VALUES (?, ?, ?, ?)', [name, category || '', unit || '', shelf_life || null], function(err) {
+  db.run('INSERT INTO items (name, category, unit, shelf_life, barcode) VALUES (?, ?, ?, ?, ?)', [name, category || '', unit || '', shelf_life || null, barcode || ''], function(err) {
     if (err) {
       return res.status(500).json({ error: '创建物品失败' });
     }
-    res.status(201).json({ id: this.lastID, name, category, unit, shelf_life });
+    res.status(201).json({ id: this.lastID, name, category, unit, shelf_life, barcode });
   });
 });
 
 app.put('/api/items/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
-  const { name, category, unit, shelf_life } = req.body;
+  const { name, category, unit, shelf_life, barcode } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: '物品名称不能为空' });
   }
   
-  db.run('UPDATE items SET name = ?, category = ?, unit = ?, shelf_life = ? WHERE id = ?', 
-    [name, category || '', unit || '', shelf_life || null, id], 
+  db.run('UPDATE items SET name = ?, category = ?, unit = ?, shelf_life = ?, barcode = ? WHERE id = ?', 
+    [name, category || '', unit || '', shelf_life || null, barcode || '', id], 
     function(err) {
       if (err) {
         return res.status(500).json({ error: '更新物品失败' });
@@ -123,7 +138,7 @@ app.put('/api/items/:id', authenticateToken, (req, res) => {
       if (this.changes === 0) {
         return res.status(404).json({ error: '物品不存在' });
       }
-      res.json({ id, name, category, unit, shelf_life });
+      res.json({ id, name, category, unit, shelf_life, barcode });
     });
 });
 
