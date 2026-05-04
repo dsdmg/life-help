@@ -11,7 +11,7 @@
       </van-button>
       
       <van-button type="success" @click="installToDesktop" block>
-        安装到桌面
+        {{ installButtonText }}
       </van-button>
       
       <van-button type="info" @click="requestNotificationPermission" block>
@@ -92,6 +92,7 @@ const testStructure = () => {
 };
 
 const isFirefox = /Firefox/i.test(navigator.userAgent);
+const installButtonText = isFirefox ? '通过菜单安装' : '安装到桌面';
 
 const diagnosePWA = () => {
   const swSupported = 'serviceWorker' in navigator;
@@ -151,8 +152,9 @@ const installToDesktop = () => {
       { title: 'Manifest', value: diagnosis.hasManifest ? '存在' : '缺失' },
       { title: 'HTTPS', value: diagnosis.isSecure ? '是' : '否' },
       { title: '安装方式', value: '浏览器菜单 → 安装' },
+      { title: '图标刷新', value: '删除旧桌面图标后重新安装' },
     ];
-    showToast('Firefox 请通过浏览器菜单安装');
+    showToast('Firefox 请用菜单添加到主屏幕');
     return;
   }
 

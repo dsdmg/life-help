@@ -13,41 +13,34 @@ export default defineConfig({
         name: 'Life Help - 生活助手',
         short_name: 'Life Help',
         description: '生活助手应用 - 仓库管理与物品追踪',
+        lang: 'zh-CN',
+        id: '/',
+        start_url: '/',
         theme_color: '#1989fa',
         background_color: '#ffffff',
         display: 'standalone',
         icons: [
           {
-            src: '/logo/logo512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable'
+            src: '/logo/logo192.png',
+            sizes: '192x192',
+            type: 'image/png'
           },
           {
             src: '/logo/logo192.png',
             sizes: '192x192',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'maskable'
           },
           {
-            src: '/logo/logo100.png',
-            sizes: '100x100',
+            src: '/logo/logo512.png',
+            sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: '/logo/logo128.ico',
-            sizes: '128x128',
-            type: 'image/x-icon'
-          },
-          {
-            src: '/logo/logo048.ico',
-            sizes: '48x48',
-            type: 'image/x-icon'
-          },
-          {
-            src: '/logo/logo032.ico',
-            sizes: '32x32',
-            type: 'image/x-icon'
+            src: '/logo/logo512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },
