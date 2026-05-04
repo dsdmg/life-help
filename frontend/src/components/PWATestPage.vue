@@ -3,11 +3,16 @@
     <div class="header">
       <h1>Trade Mobile PWA 测试页面</h1>
       <p>用于测试 PWA 相关功能</p>
+      <p class="version-text">当前版本：{{ appVersion }}</p>
     </div>
     
     <div class="button-grid">
       <van-button type="primary" @click="testStructure" block>
         结构测试
+      </van-button>
+
+      <van-button type="primary" plain @click="checkUpdate" block>
+        检查更新
       </van-button>
       
       <van-button type="success" @click="installToDesktop" block>
@@ -49,6 +54,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { showToast } from 'vant';
+import packageJson from '../../package.json';
+import { applyPwaUpdate, checkForPwaUpdate, pwaNeedRefresh } from '../pwa';
 
 type TestResult = {
   title: string;
@@ -56,6 +63,7 @@ type TestResult = {
 };
 
 const testResults = ref<TestResult[]>([]);
+const appVersion = packageJson.version;
 let deferredPrompt: any = null;
 let beforeInstallPromptFired = false;
 
@@ -78,7 +86,7 @@ window.addEventListener('appinstalled', () => {
 const testStructure = () => {
   const structure = {
     app: 'Trade Mobile',
-    version: '1.0.0',
+    version: appVersion,
     components: ['PWATestPage', 'ScanQRCode'],
     pwa: {
       manifest: true,
@@ -94,6 +102,38 @@ const testStructure = () => {
   ];
   
   showToast('结构测试完成');
+};
+
+const checkUpdate = async () => {
+  try {
+    const result = await checkForPwaUpdate();
+
+    testResults.value = [
+      { title: '当前版本', value: appVersion },
+      { title: '更新检查', value: result.message },
+      { title: '待刷新', value: pwaNeedRefresh.value ? '是' : '否' },
+    ];
+
+    if (!result.checked) {
+      showToast(result.message);
+      return;
+    }
+
+    if (result.hasUpdate) {
+      showToast('检测到新版本，页面即将刷新');
+      await applyPwaUpdate();
+      return;
+    }
+
+    showToast('当前已是最新版本');
+  } catch (error) {
+    console.error('[PWA] 检查更新失败:', error);
+    showToast('检查更新失败');
+    testResults.value = [
+      { title: '当前版本', value: appVersion },
+      { title: '更新检查', value: '失败' },
+    ];
+  }
 };
 
 const isFirefox = /Firefox/i.test(navigator.userAgent);
@@ -412,6 +452,11 @@ const testGeolocation = () => {
 .header p {
   font-size: 16px;
   color: #666;
+}
+
+.version-text {
+  margin-top: 8px;
+  font-size: 14px;
 }
 
 .button-grid {
