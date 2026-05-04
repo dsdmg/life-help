@@ -1,14 +1,17 @@
 import { reactive } from 'vue'
 import { showToast } from 'vant'
 import { sendAppNotification } from './notification'
+import axios from '@/utils/axios'
 
 const HEARTBEAT_INTERVAL = 25000
 const RECONNECT_INTERVAL = 5000
+const LAST_MESSAGE_ID_KEY = 'ws_last_message_id'
 
 let socket = null
 let heartbeatTimer = null
 let reconnectTimer = null
 let initialized = false
+let syncingMissedMessages = false
 
 export const websocketState = reactive({
   status: '未连接',
@@ -16,6 +19,7 @@ export const websocketState = reactive({
   clientId: '',
   username: '',
   lastMessage: '',
+  lastMessageId: Number.parseInt(localStorage.getItem(LAST_MESSAGE_ID_KEY) || '0', 10) || 0,
   lastMessageSender: '',
   lastMessageAt: '',
   lastPongAt: '',
@@ -37,6 +41,19 @@ const getWebSocketUrl = () => {
 const updateConnectionState = (connected, status) => {
   websocketState.connected = connected
   websocketState.status = status
+}
+
+const updateLastMessageState = (message) => {
+  const messageId = Number.parseInt(message.id, 10)
+
+  if (!Number.isNaN(messageId) && messageId > 0) {
+    websocketState.lastMessageId = messageId
+    localStorage.setItem(LAST_MESSAGE_ID_KEY, String(messageId))
+  }
+
+  websocketState.lastMessage = message.message || ''
+  websocketState.lastMessageSender = message.sender || '系统'
+  websocketState.lastMessageAt = message.timestamp || new Date().toISOString()
 }
 
 const clearHeartbeat = () => {
@@ -65,6 +82,66 @@ const scheduleReconnect = () => {
   }, RECONNECT_INTERVAL)
 }
 
+const notifyPushMessage = (message, silent = false) => {
+  updateLastMessageState(message)
+
+  if (silent) {
+    return
+  }
+
+  sendAppNotification({
+    title: 'Trade Mobile 推送消息',
+    body: websocketState.lastMessage,
+    tag: 'ws-push-message',
+    data: {
+      source: 'websocket-push',
+      sender: websocketState.lastMessageSender
+    }
+  }).then((sent) => {
+    if (!sent) {
+      showToast(`收到推送：${websocketState.lastMessage}`)
+    }
+  })
+}
+
+const syncMissedMessages = async () => {
+  if (syncingMissedMessages) {
+    return
+  }
+
+  syncingMissedMessages = true
+
+  try {
+    const response = await axios.get('/api/push-messages', {
+      params: {
+        after_id: websocketState.lastMessageId || 0
+      }
+    })
+
+    const messages = Array.isArray(response.data) ? response.data : []
+    messages.forEach((message) => {
+      notifyPushMessage(message)
+    })
+  } catch (error) {
+    websocketState.lastError = '同步漏掉的推送失败'
+  } finally {
+    syncingMissedMessages = false
+  }
+}
+
+const handleAppResume = () => {
+  if (document.visibilityState === 'hidden') {
+    return
+  }
+
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    refreshWebSocketConnection()
+    return
+  }
+
+  syncMissedMessages()
+}
+
 const handleSocketMessage = (event) => {
   let payload
 
@@ -79,6 +156,7 @@ const handleSocketMessage = (event) => {
     websocketState.clientId = payload.clientId || ''
     websocketState.username = payload.username || ''
     updateConnectionState(true, '已连接')
+    syncMissedMessages()
     return
   }
 
@@ -88,22 +166,7 @@ const handleSocketMessage = (event) => {
   }
 
   if (payload.type === 'push_message') {
-    websocketState.lastMessage = payload.message || ''
-    websocketState.lastMessageSender = payload.sender || '系统'
-    websocketState.lastMessageAt = payload.timestamp || new Date().toISOString()
-    sendAppNotification({
-      title: 'Trade Mobile 推送消息',
-      body: websocketState.lastMessage,
-      tag: 'ws-push-message',
-      data: {
-        source: 'websocket-push',
-        sender: websocketState.lastMessageSender
-      }
-    }).then((sent) => {
-      if (!sent) {
-        showToast(`收到推送：${websocketState.lastMessage}`)
-      }
-    })
+    notifyPushMessage(payload)
     return
   }
 
@@ -149,6 +212,9 @@ export const initializeWebSocket = () => {
   }
 
   initialized = true
+  window.addEventListener('online', handleAppResume)
+  window.addEventListener('pageshow', handleAppResume)
+  document.addEventListener('visibilitychange', handleAppResume)
   connectWebSocket()
 }
 

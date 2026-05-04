@@ -90,6 +90,19 @@ function initTables() {
         console.log('所有表创建/检查完成');
       }
     });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS push_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        sender TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) {
+        console.error('创建推送消息表失败:', err.message);
+      }
+    });
   });
 }
 

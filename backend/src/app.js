@@ -25,13 +25,42 @@ const sendWsMessage = (client, payload) => {
   }
 };
 
-const broadcastPushMessage = (message, sender = '系统') => {
-  const payload = {
-    type: 'push_message',
-    message,
-    sender,
-    timestamp: new Date().toISOString()
-  };
+const savePushMessage = (message, sender = '系统') => new Promise((resolve, reject) => {
+  db.run(
+    'INSERT INTO push_messages (message, sender) VALUES (?, ?)',
+    [message, sender],
+    function(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      db.get(
+        'SELECT id, message, sender, created_at FROM push_messages WHERE id = ?',
+        [this.lastID],
+        (selectErr, row) => {
+          if (selectErr) {
+            reject(selectErr);
+            return;
+          }
+
+          resolve(row);
+        }
+      );
+    }
+  );
+});
+
+const formatPushMessagePayload = (row) => ({
+  type: 'push_message',
+  id: row.id,
+  message: row.message,
+  sender: row.sender || '系统',
+  timestamp: row.created_at
+});
+
+const broadcastPushMessage = (row) => {
+  const payload = formatPushMessagePayload(row);
 
   wsClients.forEach((client) => {
     sendWsMessage(client, payload);
@@ -67,7 +96,7 @@ wss.on('connection', (ws, req) => {
     timestamp: new Date().toISOString()
   });
 
-  ws.on('message', (rawMessage) => {
+  ws.on('message', async (rawMessage) => {
     let payload;
 
     try {
@@ -109,7 +138,17 @@ wss.on('connection', (ws, req) => {
         timestamp: new Date().toISOString()
       });
 
-      broadcastPushMessage(message, ws.user.username || '访客');
+      try {
+        const savedMessage = await savePushMessage(message, ws.user.username || '访客');
+        broadcastPushMessage(savedMessage);
+      } catch (error) {
+        console.error('保存推送消息失败:', error);
+        sendWsMessage(ws, {
+          type: 'error',
+          message: '保存推送消息失败',
+          timestamp: new Date().toISOString()
+        });
+      }
       return;
     }
 
@@ -199,6 +238,34 @@ app.get('/api/warehouses', authenticateToken, (req, res) => {
     }
     res.json(rows);
   });
+});
+
+app.get('/api/push-messages', authenticateToken, (req, res) => {
+  const afterId = Number.parseInt(req.query.after_id, 10);
+  const safeAfterId = Number.isNaN(afterId) ? 0 : Math.max(afterId, 0);
+
+  db.all(
+    `
+      SELECT id, message, sender, created_at
+      FROM push_messages
+      WHERE id > ?
+      ORDER BY id ASC
+      LIMIT 100
+    `,
+    [safeAfterId],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: '查询推送消息失败' });
+      }
+
+      res.json(rows.map((row) => ({
+        id: row.id,
+        message: row.message,
+        sender: row.sender || '系统',
+        timestamp: row.created_at
+      })));
+    }
+  );
 });
 
 app.post('/api/warehouses', authenticateToken, (req, res) => {
