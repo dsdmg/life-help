@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { refreshWebSocketConnection } from '@/utils/websocket'
 
 export const useUserStore = defineStore('user', () => {
   const username = ref(localStorage.getItem('username') || '')
@@ -12,6 +13,7 @@ export const useUserStore = defineStore('user', () => {
     token.value = tokenValue
     localStorage.setItem('username', user)
     localStorage.setItem('token', tokenValue)
+    refreshWebSocketConnection()
   }
 
   function logout() {
@@ -19,6 +21,7 @@ export const useUserStore = defineStore('user', () => {
     token.value = ''
     localStorage.removeItem('username')
     localStorage.removeItem('token')
+    refreshWebSocketConnection()
   }
 
   return {

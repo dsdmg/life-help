@@ -1,15 +1,149 @@
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcrypt';
+import http from 'http';
 import jwt from 'jsonwebtoken';
+import { WebSocket, WebSocketServer } from 'ws';
 import db from './database.js';
 
 const app = express();
+const server = http.createServer(app);
 const PORT = 3000;
 const JWT_SECRET = 'life-help-secret-key';
+const WS_PATH = '/ws';
+const HEARTBEAT_INTERVAL = 25000;
+const CLIENT_TIMEOUT = 60000;
+const wsClients = new Set();
+const wss = new WebSocketServer({ server, path: WS_PATH });
 
 app.use(cors());
 app.use(express.json());
+
+const sendWsMessage = (client, payload) => {
+  if (client.readyState === WebSocket.OPEN) {
+    client.send(JSON.stringify(payload));
+  }
+};
+
+const broadcastPushMessage = (message, sender = '系统') => {
+  const payload = {
+    type: 'push_message',
+    message,
+    sender,
+    timestamp: new Date().toISOString()
+  };
+
+  wsClients.forEach((client) => {
+    sendWsMessage(client, payload);
+  });
+};
+
+const parseSocketUser = (req) => {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const token = requestUrl.searchParams.get('token');
+
+  if (!token) {
+    return { username: '访客' };
+  }
+
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return { username: '访客' };
+  }
+};
+
+wss.on('connection', (ws, req) => {
+  ws.user = parseSocketUser(req);
+  ws.clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  ws.lastHeartbeat = Date.now();
+  wsClients.add(ws);
+
+  sendWsMessage(ws, {
+    type: 'connection_ack',
+    message: 'WebSocket 连接成功',
+    clientId: ws.clientId,
+    username: ws.user.username || '访客',
+    timestamp: new Date().toISOString()
+  });
+
+  ws.on('message', (rawMessage) => {
+    let payload;
+
+    try {
+      payload = JSON.parse(rawMessage.toString());
+    } catch (error) {
+      sendWsMessage(ws, {
+        type: 'error',
+        message: '消息格式错误，仅支持 JSON',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    if (payload.type === 'ping') {
+      ws.lastHeartbeat = Date.now();
+      sendWsMessage(ws, {
+        type: 'pong',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    if (payload.type === 'request_push') {
+      const message = String(payload.message || '').trim();
+
+      if (!message) {
+        sendWsMessage(ws, {
+          type: 'error',
+          message: '推送内容不能为空',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      sendWsMessage(ws, {
+        type: 'push_ack',
+        message: '后端已接收推送请求',
+        content: message,
+        timestamp: new Date().toISOString()
+      });
+
+      broadcastPushMessage(message, ws.user.username || '访客');
+      return;
+    }
+
+    sendWsMessage(ws, {
+      type: 'error',
+      message: `不支持的消息类型: ${payload.type || 'unknown'}`,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  ws.on('close', () => {
+    wsClients.delete(ws);
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket 连接异常:', error);
+  });
+});
+
+setInterval(() => {
+  const now = Date.now();
+
+  wsClients.forEach((client) => {
+    if (now - client.lastHeartbeat > CLIENT_TIMEOUT) {
+      sendWsMessage(client, {
+        type: 'disconnect_notice',
+        message: '心跳超时，连接已关闭',
+        timestamp: new Date().toISOString()
+      });
+      client.close();
+      wsClients.delete(client);
+    }
+  });
+}, HEARTBEAT_INTERVAL);
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -341,6 +475,7 @@ app.get('/api/inventory/expiring', authenticateToken, (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`服务器运行在 http://localhost:${PORT}`);
+  console.log(`WebSocket 服务运行在 ws://localhost:${PORT}${WS_PATH}`);
 });

@@ -6,6 +6,7 @@ import 'vant/lib/index.css'
 import App from './App.vue'
 import router from './router'
 import './pwa'
+import { initializeWebSocket } from './utils/websocket'
 
 const pinia = createPinia()
 
@@ -16,3 +17,4 @@ app.use(router)
 app.use(Vant)
 
 app.mount('#app')
+initializeWebSocket()

@@ -45,7 +45,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        importScripts: ['/sw-notification.js']
       },
       devOptions: {
         enabled: true
@@ -62,6 +63,11 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/ws': {
+        target: 'ws://localhost:3000',
+        ws: true,
         changeOrigin: true
       }
     }

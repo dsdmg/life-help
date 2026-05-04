@@ -5,6 +5,28 @@
       <p>用于测试 PWA 相关功能</p>
       <p class="version-text">当前版本：{{ appVersion }}</p>
     </div>
+
+    <div class="push-test-section">
+      <h2>WebSocket 推送测试</h2>
+      <van-field
+        v-model="pushContent"
+        label="推送内容"
+        type="textarea"
+        rows="2"
+        autosize
+        placeholder="请输入要让后端推送到前端的消息"
+      />
+      <van-cell title="连接状态" :value="websocketState.status" />
+      <van-cell title="最近消息" :value="websocketState.lastMessage || '暂无消息'" />
+      <van-button
+        type="primary"
+        block
+        :disabled="!websocketState.connected"
+        @click="requestBackendPush"
+      >
+        通知后端推送消息
+      </van-button>
+    </div>
     
     <div class="button-grid">
       <van-button type="primary" @click="testStructure" block>
@@ -52,10 +74,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { showToast } from 'vant';
 import packageJson from '../../package.json';
 import { applyPwaUpdate, checkForPwaUpdate, pwaNeedRefresh } from '../pwa';
+import { sendAppNotification } from '@/utils/notification';
+import { requestPushMessage, websocketState } from '@/utils/websocket';
 
 type TestResult = {
   title: string;
@@ -64,6 +88,7 @@ type TestResult = {
 
 const testResults = ref<TestResult[]>([]);
 const appVersion = packageJson.version;
+const pushContent = ref('');
 let deferredPrompt: any = null;
 let beforeInstallPromptFired = false;
 
@@ -81,6 +106,48 @@ window.addEventListener('appinstalled', () => {
   beforeInstallPromptFired = false;
   showToast('应用已成功安装');
 });
+
+watch(
+  () => websocketState.lastMessageAt,
+  (lastMessageAt) => {
+    if (!lastMessageAt || !websocketState.lastMessage) {
+      return;
+    }
+
+    testResults.value = [
+      { title: 'WebSocket 状态', value: websocketState.status },
+      { title: '推送来源', value: websocketState.lastMessageSender || '系统' },
+      { title: '推送内容', value: websocketState.lastMessage },
+      { title: '接收时间', value: lastMessageAt },
+    ];
+  }
+);
+
+const requestBackendPush = () => {
+  const message = pushContent.value.trim();
+
+  if (!message) {
+    showToast('请输入推送内容');
+    return;
+  }
+
+  if (!websocketState.connected) {
+    showToast('WebSocket 未连接');
+    return;
+  }
+
+  if (!requestPushMessage(message)) {
+    showToast(websocketState.lastError || '推送请求发送失败');
+    return;
+  }
+
+  showToast('已通知后端推送消息');
+  testResults.value = [
+    { title: 'WebSocket 状态', value: websocketState.status },
+    { title: '推送请求', value: '已发送' },
+    { title: '推送内容', value: message },
+  ];
+};
 
 // 结构测试
 const testStructure = () => {
@@ -314,43 +381,30 @@ const sendNotification = async () => {
     return;
   }
 
-  const notificationOptions: NotificationOptions = {
-    body: '这是一条测试通知，用于验证 PWA 通知功能',
-    icon: '/logo/logo192.png',
-    badge: '/logo/logo192.png',
-    tag: 'pwa-test-notification',
-    renotify: true,
-    data: {
-      source: 'pwa-test',
-      createdAt: Date.now(),
-    },
-  };
-
-  if ('serviceWorker' in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.ready;
-
-      if (registration) {
-        await registration.showNotification('Trade Mobile 测试通知', notificationOptions);
-        showToast('通知已发送');
-        testResults.value = [
-          { title: '通知发送', value: '成功' },
-          { title: '发送方式', value: 'Service Worker' },
-          { title: '图标', value: '/logo/logo192.png' },
-        ];
-        return;
-      }
-    } catch (error) {
-      console.error('[PWA] Service Worker 通知发送失败:', error);
-    }
-  }
-
   try {
-    new Notification('Trade Mobile 测试通知', notificationOptions);
+    const success = await sendAppNotification({
+      title: 'Trade Mobile 测试通知',
+      body: '这是一条测试通知，用于验证 PWA 通知功能',
+      tag: 'pwa-test-notification',
+      data: {
+        source: 'pwa-test',
+      },
+    });
+
+    if (!success) {
+      showToast('通知发送失败，请检查 Service Worker 和站点通知设置');
+      testResults.value = [
+        { title: '通知发送', value: '失败' },
+        { title: 'Service Worker', value: '不可用或未就绪' },
+        { title: '说明', value: 'Chrome Android 建议使用 SW 通知' },
+      ];
+      return;
+    }
+
     showToast('通知已发送');
     testResults.value = [
       { title: '通知发送', value: '成功' },
-      { title: '发送方式', value: 'Notification API' },
+      { title: '发送方式', value: '系统通知' },
       { title: '图标', value: '/logo/logo192.png' },
     ];
   } catch (error) {
@@ -457,6 +511,19 @@ const testGeolocation = () => {
 .version-text {
   margin-top: 8px;
   font-size: 14px;
+}
+
+.push-test-section {
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.push-test-section h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+  color: #333;
 }
 
 .button-grid {

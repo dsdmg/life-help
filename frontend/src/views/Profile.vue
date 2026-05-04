@@ -13,6 +13,18 @@
     </van-cell-group>
 
     <van-cell-group inset class="menu-group">
+      <van-cell center title="WebSocket 连接状态">
+        <template #value>
+          <van-tag :type="statusTagType">{{ websocketState.status }}</van-tag>
+        </template>
+      </van-cell>
+      <van-cell
+        title="最近推送"
+        :value="websocketState.lastMessage || '暂无消息'"
+      />
+    </van-cell-group>
+
+    <van-cell-group inset class="menu-group">
       <van-cell
         title="退出登录"
         icon="revoke"
@@ -24,12 +36,26 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showDialog } from 'vant'
 import { useUserStore } from '@/stores/user'
+import { websocketState } from '@/utils/websocket'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+const statusTagType = computed(() => {
+  if (websocketState.connected) {
+    return 'success'
+  }
+
+  if (websocketState.status === '连接中' || websocketState.status === '重连中') {
+    return 'warning'
+  }
+
+  return 'danger'
+})
 
 const handleLogout = () => {
   showDialog({
