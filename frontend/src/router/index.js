@@ -65,6 +65,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/pwa-test',
+    name: 'PWATest',
+    component: () => import('@/components/PWATestPage.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/home'
   }

@@ -52,11 +52,21 @@ import { showToast } from 'vant';
 
 const testResults = ref([]);
 let deferredPrompt: any = null;
+let beforeInstallPromptFired = false;
 
-// 监听安装事件
 window.addEventListener('beforeinstallprompt', (e: Event) => {
+  console.log('[PWA] beforeinstallprompt 事件已触发', e);
   e.preventDefault();
   deferredPrompt = e;
+  beforeInstallPromptFired = true;
+  showToast('PWA 安装提示已就绪');
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[PWA] appinstalled 事件已触发，应用已安装');
+  deferredPrompt = null;
+  beforeInstallPromptFired = false;
+  showToast('应用已成功安装');
 });
 
 // 结构测试
@@ -81,13 +91,41 @@ const testStructure = () => {
   showToast('结构测试完成');
 };
 
-// 安装到桌面
+const isFirefox = /Firefox/i.test(navigator.userAgent);
+
+const diagnosePWA = () => {
+  const swSupported = 'serviceWorker' in navigator;
+  const manifestLink = document.querySelector('link[rel="manifest"]');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+  const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
+
+  const diagnosis = {
+    swSupported,
+    hasManifest: !!manifestLink,
+    manifestHref: manifestLink?.getAttribute('href') || '未找到',
+    isStandalone,
+    isSecure,
+    protocol: location.protocol,
+    hostname: location.hostname,
+    isFirefox,
+    beforeInstallPromptFired,
+    deferredPromptExists: !!deferredPrompt,
+    userAgent: navigator.userAgent,
+  };
+
+  console.log('[PWA] 安装诊断信息:', diagnosis);
+  return diagnosis;
+};
+
 const installToDesktop = () => {
+  console.log('[PWA] 点击安装按钮, deferredPrompt:', deferredPrompt ? '存在' : '不存在');
+  const diagnosis = diagnosePWA();
+
   if (deferredPrompt) {
-    console.log('触发 PWA 安装提示');
+    console.log('[PWA] 触发 PWA 安装提示');
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult: any) => {
-      console.log('安装选择结果:', choiceResult.outcome);
+      console.log('[PWA] 安装选择结果:', choiceResult.outcome);
       if (choiceResult.outcome === 'accepted') {
         showToast('应用已安装到桌面');
       } else {
@@ -95,19 +133,36 @@ const installToDesktop = () => {
       }
       deferredPrompt = null;
     });
-  } else {
-    console.log('无安装提示可用');
-    // 检查是否已经安装
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      showToast('应用已安装');
-    } else {
-      showToast('请在支持 PWA 的浏览器中打开');
-      console.log('PWA 安装提示不可用，可能的原因：');
-      console.log('1. 浏览器不支持 PWA');
-      console.log('2. 应用已安装');
-      console.log('3. 未满足 PWA 安装条件');
-    }
+    return;
   }
+
+  if (diagnosis.isStandalone) {
+    console.log('[PWA] 应用已处于独立模式，无需再次安装');
+    showToast('应用已安装');
+    return;
+  }
+
+  if (isFirefox) {
+    console.log('[PWA] Firefox 不支持 beforeinstallprompt 事件，请通过浏览器菜单安装');
+    console.log('[PWA] Firefox 安装方式: 点击浏览器菜单 → 添加到主屏幕/安装');
+    testResults.value = [
+      { title: '浏览器', value: 'Firefox' },
+      { title: 'Service Worker', value: diagnosis.swSupported ? '支持' : '不支持' },
+      { title: 'Manifest', value: diagnosis.hasManifest ? '存在' : '缺失' },
+      { title: 'HTTPS', value: diagnosis.isSecure ? '是' : '否' },
+      { title: '安装方式', value: '浏览器菜单 → 安装' },
+    ];
+    showToast('Firefox 请通过浏览器菜单安装');
+    return;
+  }
+
+  console.log('[PWA] 安装提示不可用，诊断结果:');
+  console.log('  - Service Worker 支持:', diagnosis.swSupported);
+  console.log('  - Manifest 存在:', diagnosis.hasManifest);
+  console.log('  - HTTPS:', diagnosis.isSecure);
+  console.log('  - 独立模式:', diagnosis.isStandalone);
+  console.log('  - beforeinstallprompt 触发过:', diagnosis.beforeInstallPromptFired);
+  showToast('安装提示不可用，请查看控制台日志');
 };
 
 // 获取通知权限

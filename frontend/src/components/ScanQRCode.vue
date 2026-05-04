@@ -198,61 +198,53 @@ const getCamerasInfo = () => {
 const startScan = () => {
   console.log("开始扫描");
   
-  // 尝试不同的摄像头配置
-  const cameraConfigs = [
-    { facingMode: "environment" }, // 后置摄像头
-    { facingMode: "user" }, // 前置摄像头
-    { facingMode: "any" }, // 任意摄像头
-    undefined // 让浏览器自动选择
-  ];
-  
-  let currentConfigIndex = 0;
-  
-  const tryNextConfig = () => {
-    if (currentConfigIndex >= cameraConfigs.length) {
-      console.error("所有摄像头配置都失败");
-      showToast({
-        message: "无法启动摄像头！",
-        duration: 2000,
-      });
-      emit("close");
-      return;
-    }
-    
-    const config = cameraConfigs[currentConfigIndex];
-    console.log(`尝试摄像头配置:`, config);
-    
-    state.html5QrCode
-      .start(
-        config,
-        {
-          fps: 1,
-          qrbox: { width: 300, height: 300 },
-          videoConstraints: {
-            width: { ideal: window.innerWidth },
-            height: { ideal: window.innerHeight }
+  state.html5QrCode
+    .start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: { width: 300, height: 300 }
+      },
+      (decodedText, decodedResult) => {
+        stopScan();
+        emit("success", decodedText);
+      },
+      (errorMessage) => {
+        // 扫描错误，忽略
+      }
+    )
+    .then(() => {
+      console.log("后置摄像头扫描启动成功");
+    })
+    .catch((err) => {
+      console.error("后置摄像头启动失败，尝试前置摄像头:", err);
+      state.html5QrCode
+        .start(
+          { facingMode: "user" },
+          {
+            fps: 10,
+            qrbox: { width: 300, height: 300 }
+          },
+          (decodedText, decodedResult) => {
+            stopScan();
+            emit("success", decodedText);
+          },
+          (errorMessage) => {
+            // 扫描错误，忽略
           }
-        },
-        (decodedText, decodedResult) => {
-          // console.log("扫描成功:", decodedText, decodedResult);
-          stopScan();
-          emit("success", decodedText);
-        },
-        (errorMessage) => {
-          // console.log("扫描错误:", errorMessage);
-        }
-      )
-      .then(() => {
-        console.log("扫描启动成功");
-      })
-      .catch((err) => {
-        console.error(`摄像头配置失败 [${currentConfigIndex}]:`, err);
-        currentConfigIndex++;
-        tryNextConfig();
-      });
-  };
-  
-  tryNextConfig();
+        )
+        .then(() => {
+          console.log("前置摄像头扫描启动成功");
+        })
+        .catch((err2) => {
+          console.error("所有摄像头启动失败:", err2);
+          showToast({
+            message: "无法启动摄像头！",
+            duration: 2000,
+          });
+          emit("close");
+        });
+    });
 };
 
 const stopScan = () => {

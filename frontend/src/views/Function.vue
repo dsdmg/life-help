@@ -27,6 +27,11 @@
         text="扫描出库"
         @click="navigateTo('/scan-out')"
       />
+      <van-grid-item
+        icon="mobile-o"
+        text="PWA测试"
+        @click="navigateTo('/pwa-test')"
+      />
     </van-grid>
   </div>
 </template>
