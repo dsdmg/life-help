@@ -50,7 +50,12 @@
 import { ref } from 'vue';
 import { showToast } from 'vant';
 
-const testResults = ref([]);
+type TestResult = {
+  title: string;
+  value: string;
+};
+
+const testResults = ref<TestResult[]>([]);
 let deferredPrompt: any = null;
 let beforeInstallPromptFired = false;
 
@@ -92,7 +97,22 @@ const testStructure = () => {
 };
 
 const isFirefox = /Firefox/i.test(navigator.userAgent);
+const isChrome = /Chrome|CriOS/i.test(navigator.userAgent) && !/Edg|Firefox/i.test(navigator.userAgent);
 const installButtonText = isFirefox ? '通过菜单安装' : '安装到桌面';
+
+const getNotificationPermissionState = async () => {
+  if (!('permissions' in navigator) || !navigator.permissions?.query) {
+    return 'unsupported';
+  }
+
+  try {
+    const status = await navigator.permissions.query({ name: 'notifications' as PermissionName });
+    return status.state;
+  } catch (error) {
+    console.warn('[PWA] 查询通知权限状态失败:', error);
+    return 'unknown';
+  }
+};
 
 const diagnosePWA = () => {
   const swSupported = 'serviceWorker' in navigator;
@@ -169,30 +189,138 @@ const installToDesktop = () => {
 
 // 获取通知权限
 const requestNotificationPermission = async () => {
-  if ('Notification' in window) {
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      showToast('通知权限已授予');
-      testResults.value = [{ title: '通知权限', value: '已授予' }];
-    } else {
-      showToast('通知权限被拒绝');
-      testResults.value = [{ title: '通知权限', value: '已拒绝' }];
-    }
-  } else {
+  if (!('Notification' in window)) {
     showToast('浏览器不支持通知');
+    return;
   }
+
+  const isSecure = window.isSecureContext;
+  const beforePermission = Notification.permission;
+  const permissionState = await getNotificationPermissionState();
+
+  if (!isSecure) {
+    showToast('当前不是安全上下文，通知不可用');
+    testResults.value = [
+      { title: '通知权限', value: '不可用' },
+      { title: '安全上下文', value: '否' },
+      { title: '协议', value: location.protocol },
+    ];
+    return;
+  }
+
+  if (beforePermission === 'granted') {
+    showToast('通知权限已授予');
+    testResults.value = [
+      { title: '通知权限', value: '已授予' },
+      { title: 'Permissions API', value: permissionState },
+      { title: '浏览器', value: isChrome ? 'Chrome' : isFirefox ? 'Firefox' : '其他' },
+    ];
+    return;
+  }
+
+  if (beforePermission === 'denied') {
+    showToast(isChrome ? 'Chrome 已拦截通知，请到站点设置中改为允许' : '通知权限已被拒绝');
+    testResults.value = [
+      { title: '通知权限', value: '已拒绝' },
+      { title: 'Permissions API', value: permissionState },
+      { title: '浏览器', value: isChrome ? 'Chrome' : isFirefox ? 'Firefox' : '其他' },
+      { title: '说明', value: isChrome ? '需到地址栏/站点设置中手动改为允许' : '浏览器当前不再弹窗' },
+    ];
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  const afterPermissionState = await getNotificationPermissionState();
+
+  if (permission === 'granted') {
+    showToast('通知权限已授予');
+    testResults.value = [
+      { title: '通知权限', value: '已授予' },
+      { title: 'Permissions API', value: afterPermissionState },
+      { title: '浏览器', value: isChrome ? 'Chrome' : isFirefox ? 'Firefox' : '其他' },
+    ];
+    return;
+  }
+
+  if (permission === 'default') {
+    showToast('通知权限未选择，可能被浏览器静默拦截');
+    testResults.value = [
+      { title: '通知权限', value: '未选择' },
+      { title: 'Permissions API', value: afterPermissionState },
+      { title: '浏览器', value: isChrome ? 'Chrome' : isFirefox ? 'Firefox' : '其他' },
+      { title: '说明', value: '可能未弹窗或被静默拦截' },
+    ];
+    return;
+  }
+
+  showToast(isChrome ? 'Chrome 已拒绝或拦截通知，请检查站点通知设置' : '通知权限被拒绝');
+  testResults.value = [
+    { title: '通知权限', value: '已拒绝' },
+    { title: 'Permissions API', value: afterPermissionState },
+    { title: '浏览器', value: isChrome ? 'Chrome' : isFirefox ? 'Firefox' : '其他' },
+    { title: '说明', value: isChrome ? '请到 Chrome 站点设置中允许通知' : '浏览器返回 denied' },
+  ];
 };
 
 // 发送通知
-const sendNotification = () => {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('Trade Mobile 测试通知', {
-      body: '这是一条测试通知，用于验证 PWA 通知功能',
-      icon: '/pwa-192x192.png'
-    });
-    showToast('通知已发送');
-  } else {
+const sendNotification = async () => {
+  if (!('Notification' in window)) {
+    showToast('浏览器不支持通知');
+    return;
+  }
+
+  if (Notification.permission !== 'granted') {
     showToast('请先获取通知权限');
+    return;
+  }
+
+  const notificationOptions: NotificationOptions = {
+    body: '这是一条测试通知，用于验证 PWA 通知功能',
+    icon: '/logo/logo192.png',
+    badge: '/logo/logo192.png',
+    tag: 'pwa-test-notification',
+    renotify: true,
+    data: {
+      source: 'pwa-test',
+      createdAt: Date.now(),
+    },
+  };
+
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.ready;
+
+      if (registration) {
+        await registration.showNotification('Trade Mobile 测试通知', notificationOptions);
+        showToast('通知已发送');
+        testResults.value = [
+          { title: '通知发送', value: '成功' },
+          { title: '发送方式', value: 'Service Worker' },
+          { title: '图标', value: '/logo/logo192.png' },
+        ];
+        return;
+      }
+    } catch (error) {
+      console.error('[PWA] Service Worker 通知发送失败:', error);
+    }
+  }
+
+  try {
+    new Notification('Trade Mobile 测试通知', notificationOptions);
+    showToast('通知已发送');
+    testResults.value = [
+      { title: '通知发送', value: '成功' },
+      { title: '发送方式', value: 'Notification API' },
+      { title: '图标', value: '/logo/logo192.png' },
+    ];
+  } catch (error) {
+    console.error('[PWA] 普通通知发送失败:', error);
+    showToast('通知发送失败，请检查 Service Worker 和站点通知设置');
+    testResults.value = [
+      { title: '通知发送', value: '失败' },
+      { title: 'Service Worker', value: '不可用或未就绪' },
+      { title: '说明', value: 'Chrome Android 建议使用 SW 通知' },
+    ];
   }
 };
 
