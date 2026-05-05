@@ -5,6 +5,7 @@ import http from 'http';
 import jwt from 'jsonwebtoken';
 import { WebSocket, WebSocketServer } from 'ws';
 import db from './database.js';
+import pushService from './push-service.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -65,6 +66,44 @@ const broadcastPushMessage = (row) => {
   wsClients.forEach((client) => {
     sendWsMessage(client, payload);
   });
+
+  const sendFCMPush = async (message) => {
+    try {
+      db.all(
+        'SELECT token FROM device_tokens WHERE platform = ?',
+        ['android'],
+        (err, rows) => {
+          if (err) {
+            console.error('查询设备令牌失败:', err);
+            return;
+          }
+
+          if (!rows || rows.length === 0) {
+            return;
+          }
+
+          const tokens = rows.map(row => row.token);
+
+          pushService.sendToMultiple(
+            tokens,
+            'LifeHelp',
+            message.message,
+            {
+              messageId: message.id,
+              sender: message.sender,
+              url: '/home'
+            }
+          ).catch((error) => {
+            console.error('FCM 推送失败:', error);
+          });
+        }
+      );
+    } catch (error) {
+      console.error('发送 FCM 推送异常:', error);
+    }
+  };
+
+  sendFCMPush(row);
 };
 
 const parseSocketUser = (req) => {
@@ -540,6 +579,34 @@ app.get('/api/inventory/expiring', authenticateToken, (req, res) => {
     }
     res.json(rows);
   });
+});
+
+app.post('/api/push/register', authenticateToken, (req, res) => {
+  const { token, platform } = req.body;
+
+  if (!token || !platform) {
+    return res.status(400).json({ error: 'Token 和平台不能为空' });
+  }
+
+  const userId = req.user?.id;
+
+  db.run(
+    `INSERT OR REPLACE INTO device_tokens (token, platform, user_id, updated_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+    [token, platform, userId || null],
+    function(err) {
+      if (err) {
+        console.error('注册设备令牌失败:', err);
+        return res.status(500).json({ error: '注册设备令牌失败' });
+      }
+
+      res.json({
+        success: true,
+        message: '设备注册成功',
+        id: this.lastID
+      });
+    }
+  );
 });
 
 server.listen(PORT, () => {

@@ -103,6 +103,22 @@ function initTables() {
         console.error('创建推送消息表失败:', err.message);
       }
     });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL UNIQUE,
+        platform TEXT NOT NULL DEFAULT 'web',
+        user_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) {
+        console.error('创建设备令牌表失败:', err.message);
+      }
+    });
   });
 }
 
